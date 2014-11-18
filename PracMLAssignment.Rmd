@@ -1,0 +1,195 @@
+---
+title: "Predicting Weigh Training Exercise"
+date: "Friday, November 07, 2014"
+output: html_document
+---
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+```{r}
+#Helper Functions
+
+# funcGetColClass - returns the type of datatable columns
+# param - dt 
+# return list of classnames for each column
+funcGetColClass <- function (dt) {
+  l <- sapply(c(1:ncol(dt)), FUN = function(x) class(dt[,x]))
+  names(l) <- names(dt)
+  l
+}
+
+# funcGetColNACount - returns the type of datatable columns
+# param - dt 
+# return list of total NA's in each column
+funcGetColNACount <- function (dt) {
+  l <- sapply(c(1:ncol(dt)), FUN = function(x) sum(is.na(dt[,x])))
+  names(l) <- names(dt)
+  l
+}
+
+# funcGetColValCount - returns the type of datatable columns
+# param - dt 
+# param - val 
+# return list of total matching values in each column
+funcGetColValCount <- function (dt, val) {
+  l <- sapply(c(1:ncol(dt)), FUN = function(x) sum(dt[,x] == val))
+  names(l) <- names(dt)
+  l
+}
+
+# fh_dt_cor_feat_select - returns the type of datatable columns
+# param - dt 
+# return list of classnames for each column
+fh_dt_cor_feat_select <- function (dt,cutoff = 0.8 ) {
+  
+  dt_tmp <- dt
+  cols <- c(1:ncol(dt_tmp))
+  
+  while(TRUE) {
+    cor_i <- abs(cor(dt_tmp[,cols]))
+    diag(cor_i) <- 0
+    wcor <- which(cor_i > cutoff, arr.ind=T)
+    if(nrow(wcor) <= 0) break;
+    
+    col_r <- sort(unique(wcor[,1]))
+    wcor_cnt <- tapply(wcor[,1], as.factor(wcor[,1]), length)
+    m_cnt <- max(wcor_cnt)
+    
+    if(m_cnt <= 1) break;
+    
+    cols <- cols[-col_r[wcor_cnt == m_cnt][1]] 
+    
+  }
+  rm_col <- c(1:ncol(dt_tmp))
+  rm_col <- rm_col[!(rm_col %in% cols)]
+  rm_col
+}
+
+
+```
+
+
+```{r}
+library(caret)
+library(randomForest)
+#Load Data
+# https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+# https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+if (! file.exists('./pml-training.csv')) {
+    download.file('http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv', destfile = './pml-training.csv')
+}
+if (! file.exists('./pml-testing.csv')) {
+    download.file('http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv', destfile = './pml-testing.csv')
+}
+
+pml_train <- read.csv('./pml-training.csv')
+pml_submit <- read.csv('./pml-testing.csv')
+
+#Backup the classe variable
+pml_train_classe <- pml_train$classe
+
+#Cleaning Data
+# Step 1: Removing first same records containing generic information like name, time, window etc.
+# Step 2: Removing non-numeric data(only keeping the outcome variable classe)
+# Step 3: Removing Columns containing mostly NA values(more than 90%) 
+# Step 4: Removing Columns containing mostly empty "" values(more than 90%) 
+
+# Data Clean Step 1
+pml_train <- pml_train[,-c(1:7)]
+pml_submit <- pml_submit[,-c(1:7)]
+
+for(i in c(1:ncol(pml_train)-1)) {pml_train[,i] = as.numeric(as.character(pml_train[,i]))}
+for(i in c(1:ncol(pml_submit))) {pml_submit[,i] = as.numeric(as.character(pml_submit[,i]))}
+
+# Data Clean Step 2
+# Get Numeric Column Index
+# num_col <- funcGetColClass(pml_train) %in% c("numeric","integer")
+# pml_train <- pml_train[, (num_col | (names(pml_train) == "classe"))]
+# pml_submit <- pml_submit[,num_col]
+
+# Data Clean Step 3
+na_col <- funcGetColNACount(pml_train) > (nrow(pml_train) * 0.9)
+na_col_idx <- sapply(1:length(na_col), FUN = function(x) ifelse(na_col[x], x, -1))[na_col]
+pml_train <- pml_train[, - na_col_idx]
+pml_submit <- pml_submit[,- na_col_idx]
+
+# Data Clean Step 4
+empty_col <- funcGetColValCount(pml_train,"") > (nrow(pml_train) * 0.9)
+empty_col_idx <- sapply(1:length(empty_col), FUN = function(x) ifelse(empty_col[x], x, -1))[empty_col]
+pml_train <- pml_train[, - empty_col_idx]
+pml_submit <- pml_submit[,- empty_col_idx]
+
+#nearZeroVar
+summary(pml_train)
+summary(pml_submit)
+
+#Feature Selection
+###Start
+# set.seed(10)
+# 
+# ctrl <- rfeControl(functions = lmFuncs,
+#                    method = "repeatedcv",
+#                    repeats = 5,
+#                    verbose = FALSE)
+# subsets <- c(20, 100, 1000, 5000)
+# lmProfile <- rfe(pml_train[,-53], pml_train$classe,
+#                  sizes = subsets,
+#                  rfeControl = ctrl)
+# 
+# lmProfile
+
+#fh_dt_cor_feat_select(pml_train[,-53])
+###End
+
+#Partition Training Data
+set.seed(1111)
+inTrain <- createDataPartition(y=pml_train$classe, p=0.75, list=FALSE)
+training <- pml_train[inTrain,]
+testing <- pml_train[-inTrain,]
+#...explore other partitioning methods
+
+set.seed(1111)
+inTrain2 <- createDataPartition(y=training$classe, p=0.8, list=FALSE)
+train.subsample <- training[inTrain2,]
+train.subtest <- training[-inTrain2,]
+
+randomForest(x=train.subsample[,-53], y=train.subsample$classe, xtest=train.subtest[,-53], ytest=train.subtest$classe, importance=TRUE, keep.forest=TRUE) -> rForestObj
+
+predict(rForestObj, testing[,-53]) ->testclasse
+confusionMatrix(testclasse, testing$classe)
+
+
+#
+set.seed(32343)
+#modelFit <- train(classe ~ ., data=training, method="glm")
+
+preProcCenterScale <- preProcess(training[,-53],method=c("center","scale"))
+trainingCentered <- predict(preProcCenterScale, training[,-53])
+preProcess(training[,-53],method="pca")
+pcaTraining <- predict(preProcess(training[,-53],method="pca"),training[,-53])
+modelFit <- train(training$classe ~ ., method="glm", data=pcaTraining)
+
+# if error 
+# Error in loadNamespace(name) : there is no package called 'e1071'
+# install.packages("e1071")
+modelFit$finalModel
+predictions <- predict(modelFit, newdata=testing)
+predictions 
+confusionMatrix(predictions, testing$type)
+
+
+summary(cars)
+```
+
+You can also embed plots, for example:
+
+```{r, echo=FALSE}
+# Refer
+# http://groupware.les.inf.puc-rio.br/har
+# 
+# http://topepo.github.io/caret/preprocess.html#corr
+# http://topepo.github.io/caret/featureselection.html
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
