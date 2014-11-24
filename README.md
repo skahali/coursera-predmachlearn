@@ -17,5 +17,8 @@ If you are not able to read the html file as GitHub does not render this file th
 PracticalMLWriteUp.html
 ---------------------------------------------
 This File contains the final report for Project Writeup generate as html file.
+This report can be also viewed from following github page location:
+[http://skahali.github.io/coursera-predmachlearn/PracticalMLWriteUp.html]
+
 
 
